@@ -68,19 +68,12 @@ use Data::Dumper;
 BEGIN {
     use Exporter ();
     use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
-    $VERSION     = '0.5';
+    $VERSION     = '0.6';
     @ISA         = qw(Exporter);
     @EXPORT      = qw();
     @EXPORT_OK   = qw();
     %EXPORT_TAGS = ();
 }
-
-# width and height of the generated test images.
-our $IMAGE_SIZE = 200;
-# border around the image contents within the generated images.
-our $IMAGE_BORDER = 4;
-# minimum distance between two candidate points to consider matched.
-our $MATCH_RADIUS = int($IMAGE_SIZE / 20);
 
 
 =head2 my $classifier = Image::Classifier->new(\%args)
@@ -95,6 +88,15 @@ Create a new classifier, passing in parameters as follows:
 
   force_refresh - If true, ignore cached corner data files and
       regenerate.
+
+  image_size - Width and height of the generated test images.
+      Defaults to 200px.
+
+  image_border - Border size around the contents of the generated images.
+      Defaults to 4px.
+
+  match_radius - Maximum distance between candidate points to consider
+      matched.  Defaults to 1/20th the image_size.
 
   debug_images - Write out images from intermediate stages in the
       classification process to the work_dir.
@@ -111,9 +113,13 @@ sub new {
   {
    training_dir  => $args{training_dir},
    work_dir      => $args{work_dir} || $args{training_dir},
-   debug_images  => $args{debug_images},
    force_refresh => $args{force_refresh},
+   image_size    => $args{image_size} || 200,
+   image_border  => $args{image_border} || 4,
+   debug_images  => $args{debug_images},
   };
+
+  $self->{match_radius} = $args{match_radius} || ($self->{image_size} / 20);
 
   bless $self, $class;
 
@@ -141,17 +147,13 @@ sub classify {
   for my $k (keys %$td) {
     my @samples = @{$$td{$k}};
 
-    my $i = 1;
     for my $s (@samples) {
       my $samplefile = shift @$s;
-      #say "scoring against $k $i ($samplefile): ".Dumper($s);
-      my $score = score(\@corners, $s);
-      #say "scoring against $k $i ($samplefile): $score";
+      my $score = $self->score(\@corners, $s);
       if (!$confidence or $score > $confidence) {
         $type = $k;
         $confidence = $score;
       }
-      ++$i;
     }
   }
 
@@ -161,33 +163,30 @@ sub classify {
 # return how close the two sets of corners are matched, as a number
 # between 0 and 1.
 sub score {
-  my ($test, $candidate) = @_;
+  my ($self, $test, $candidate) = @_;
 
   return 0 unless @$test && @$candidate;
 
-  #say "test ".@$test." cand ".@$candidate;
-
-  my $distsq = $MATCH_RADIUS ** 2;
+  my $distsq = $self->{match_radius} ** 2;
   my $score = 0;
 
   for my $sa (@$test) {
     my $closest = 0;
     for my $sb (@$candidate) {
-      next unless $sa && $sb;# && @$sa == 2 && @$sb == 2;
-      #print Dumper($sa,$sb);
+      next unless $sa && $sb;
+
       my $distance = ($$sa[0] - $$sb[0])**2 + ($$sa[1] - $$sb[1])**2;
       my $scale = $distance / $distsq;
       my $sc = $scale < 1 ? 1 - $scale : 0;
       $closest = max($sc, $closest);
-      #say "dist $distance, scale $scale, score $sc, closest $closest = $score";
     }
+
     $score += $closest;
   }
 
   my $count = max(scalar @$test, scalar @$candidate);
-  #say "pre score: $score / $count";
   $score /= $count;
-  #say "end score: $score";
+
   return $score;
 }
 
@@ -202,7 +201,7 @@ sub init {
 
   for my $typedir (sort grep { -d $_ } glob("$tdir/*")) {
     my $type = basename($typedir);
-    say "loading type '$type' from $typedir";
+    #say "loading type '$type' from $typedir";
 
     my @sets = ();
 
@@ -301,8 +300,8 @@ sub makeSilhouette {
   my $status = $image->Read($filename);
   warn $status if $status;
 
-  my $s = $IMAGE_SIZE;
-  my $border = $IMAGE_BORDER;
+  my $s = $self->{image_size};
+  my $border = $self->{image_border};
   my $s2 = $s - ($border*2);
   my $size = "${s}x$s";
   my $scaleSize = "${s2}x$s2";
