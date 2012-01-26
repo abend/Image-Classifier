@@ -86,6 +86,9 @@ Create a new classifier, passing in parameters as follows:
   work_dir - Path to a writable directory for placing working files.
       Defaults to training_dir.
 
+  corner_params - Hashref of parameters to pass to the corner
+      detector.  See Image::CornerDetect for details.
+
   force_refresh - If true, ignore cached corner data files and
       regenerate.
 
@@ -117,6 +120,7 @@ sub new {
    image_size    => $args{image_size} || 200,
    image_border  => $args{image_border} || 4,
    debug_images  => $args{debug_images},
+   corner_params => $args{corner_params},
   };
 
   $self->{match_radius} = $args{match_radius} || ($self->{image_size} / 20);
@@ -228,7 +232,7 @@ sub getCorners {
 
   # make silhouette
   my ($sil, $orig) = $self->makeSilhouette($filename);
-  $self->writeDebugImage($sil, $filename, "1silh");
+  #$self->writeDebugImage($sil, $filename, "1silh");
 
   # make edge mask
   my $edetector = Image::EdgeDetect->new({
@@ -238,10 +242,10 @@ sub getCorners {
                                           kernel_width => 3,#16,
                                          });
   my $edge = $edetector->process($sil);
-  $self->writeDebugImage($edge, $filename, "2edge");
+  #$self->writeDebugImage($edge, $filename, "2edge");
 
   # detect corners
-  my $cdetector = Image::CornerDetect->new();
+  my $cdetector = Image::CornerDetect->new($self->{corner_params});
   my @corners = $cdetector->process($edge);
 
   if ($self->{debug_images}) {
