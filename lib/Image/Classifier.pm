@@ -102,7 +102,11 @@ Create a new classifier, passing in parameters as follows:
       matched.  Defaults to 1/20th the image_size.
 
   debug_images - Write out images from intermediate stages in the
-      classification process to the work_dir.
+      classification process to the work_dir.  Set to 1 to write a
+      composite of corners and edges over the original image.  Set to
+      2 to also write separate silhouette, edge, and corner images.
+      Set to 3 to add a clipped version of the original image.
+      Default is 0 (no images).
 
 =cut
 
@@ -232,7 +236,7 @@ sub getCorners {
 
   # make silhouette
   my ($sil, $orig) = $self->makeSilhouette($filename);
-  #$self->writeDebugImage($sil, $filename, "1silh");
+  $self->writeDebugImage($sil, $filename, "sil", 2);
 
   # make edge mask
   my $edetector = Image::EdgeDetect->new({
@@ -242,7 +246,7 @@ sub getCorners {
                                           kernel_width => 3,#16,
                                          });
   my $edge = $edetector->process($sil);
-  #$self->writeDebugImage($edge, $filename, "2edge");
+  $self->writeDebugImage($edge, $filename, "edge", 2);
 
   # detect corners
   my $cdetector = Image::CornerDetect->new($self->{corner_params});
@@ -260,7 +264,7 @@ sub getCorners {
                   points=>sprintf("%d,%d %d,%d", $x-$w, $y-$w, $x+$w, $y+$w));
     }
 
-    $self->writeDebugImage($orig, $filename, "3corn");
+    $self->writeDebugImage($orig, $filename, "corner", 2);
   }
 
   $self->saveCorners($cf, \@corners) unless $dont_cache;
@@ -328,6 +332,17 @@ sub makeSilhouette {
 
   $image->Negate(channel => 'Alpha');
 
+  if (transparentAmount($image) == 0) {
+    # flood fill
+    $image->Set(fill => 'none');
+    my @pixels = $image->GetPixel(x=>0,y=>0);
+    my $color = sprintf("#%0.2X%0.2X%0.2X", map { $_ * 255 } @pixels);
+    $image->Border(geometry => '1x1', fill => $color);
+    $image->MatteFloodfill(geometry => '0x0', fuzz => '2%');
+  }
+
+  $self->writeDebugImage($image, $filename, "clip", 3);
+
   my $white = Image::Magick->new;
   $white->Set(size=>$scaleSize);
   $white->ReadImage('xc:white');
@@ -341,7 +356,6 @@ sub makeSilhouette {
   $black->ReadImage('xc:black');
   $black->Composite(image=>$pad, compose=>'SrcOver', gravity=>'Center');
   $black->Quantize(colors=>2);
-  #$self->writeDebugImage($black, $filename, "foo");
 
   my $orig = Image::Magick->new(size => $size.'x'.$size);
   $orig->ReadImage("xc:white");
@@ -350,10 +364,29 @@ sub makeSilhouette {
   return $black, $orig;
 }
 
-sub writeDebugImage {
-  my ($self, $img, $file, $type) = @_;
+# return the amount of the image that is transparent, from 0-1.
+# requires the image to be saved with an alpha channel first, ie clip
+# paths aren't considered.
+sub transparentAmount {
+  my $image = shift;
 
-  return unless $self->{debug_images};
+  my @h = $image->Histogram();
+  my ($trans, $total) = (0, 0);
+  for (my $i = 0; $i < @h; $i += 5) {
+    my ($r, $g, $b, $a, $cnt) = @h[$i..$i+4];
+    if ($a > 65530) {
+      $trans += $cnt;
+    }
+    $total += $cnt;
+  }
+
+  return $trans / $total;
+}
+
+sub writeDebugImage {
+  my ($self, $img, $file, $type, $level) = @_;
+
+  return unless $self->{debug_images} >= $level;
 
   $img->Write($self->workFile($file, $type, "gif"));
 }
