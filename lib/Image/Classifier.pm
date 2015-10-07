@@ -145,7 +145,7 @@ Classify the input image, returning the closest match type and confidence level.
 sub classify {
   my ($self, $filename) = @_;
 
-  my ($type, $confidence);
+  my ($type, $confidence, $closest);
 
   my @corners = $self->getCorners($filename, 1);
 
@@ -161,11 +161,12 @@ sub classify {
       if (!$confidence or $score > $confidence) {
         $type = $k;
         $confidence = $score;
+        $closest = $samplefile;
       }
     }
   }
 
-  return $type, $confidence;
+  return $type, $confidence, $closest;
 }
 
 # return how close the two sets of corners are matched, as a number
